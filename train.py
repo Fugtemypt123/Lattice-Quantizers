@@ -16,10 +16,10 @@ def CLP(B, zB):
     # Approximation of the closest point in the lattice (solving lattice problem is hard)
     return np.round(np.linalg.solve(B, zB))
 
-
+# Function to perform LLL reduction
 def gram_schmidt(B):
     """Perform Gram-Schmidt orthogonalization."""
-    n, m = B.shape
+    n = B.shape[0]
     R = np.zeros((n, n))
     Q = np.zeros_like(B)
 
@@ -34,40 +34,40 @@ def gram_schmidt(B):
     return Q, R
 
 def lll_reduction(B, delta=0.75):
-    """LLL (Lenstra–Lenstra–Lovász) lattice basis reduction."""
-    n = B.shape[0]
+    """Perform LLL (Lenstra–Lenstra–Lovász) reduction."""
     B = B.copy()
-    Q, R = gram_schmidt(B)  # Initial Gram-Schmidt orthogonalization
-    
+    n = B.shape[0]
+    Q, R = gram_schmidt(B)  # Perform initial Gram-Schmidt orthogonalization
+
     k = 1
     while k < n:
+        # Size reduction step
         for j in range(k-1, -1, -1):
-            # Reduce the basis vectors
-            mu = np.round(np.dot(B[k], Q[j]) / np.dot(Q[j], Q[j]))
-            B[k] -= mu * B[j]
-        
-        Q, R = gram_schmidt(B)  # Update Gram-Schmidt orthogonalization
+            mu = np.dot(B[k], Q[j]) / np.dot(Q[j], Q[j])
+            B[k] -= np.round(mu) * B[j]
 
         # Check Lovász condition
-        if np.dot(Q[k-1], Q[k-1]) * delta > np.dot(Q[k], Q[k]) + np.dot(Q[k-1], B[k])**2 / np.dot(Q[k-1], Q[k-1]):
+        if np.dot(Q[k-1], Q[k-1]) * delta > (np.dot(Q[k], Q[k]) + (np.dot(Q[k-1], B[k]) ** 2) / np.dot(Q[k-1], Q[k-1])):
             # Swap vectors
             B[[k, k-1]] = B[[k-1, k]]
             Q, R = gram_schmidt(B)  # Recompute after swapping
-            k = max(k-1, 1)  # Go back one step
+            k = max(k-1, 1)
         else:
             k += 1
     return B
 
-# Function to perform lattice reduction (Placeholder using Gram-Schmidt)
 def RED(B):
-    Q, R = np.linalg.qr(B.T)
-    return Q.T
+    """Wrapper for reduction, currently uses LLL reduction."""
     return lll_reduction(B)
 
 # Function to orthogonalize and ensure positive diagonals
 def ORTH(B):
-    Q, R = np.linalg.qr(B)
-    return Q @ np.diag(np.sign(np.diag(R)))
+    """Ensure lower triangular matrix with positive diagonal elements."""
+    B = np.tril(B)  # Enforce lower triangular form
+    diag_sign = np.sign(np.diag(B))
+    diag_sign[diag_sign == 0] = 1  # Replace zero diagonals with positive
+    B = B * diag_sign[:, np.newaxis]  # Adjust rows to ensure diagonals are positive
+    return B
 
 # Function to compute the Normalized Second Moment (NSM)
 def compute_nsm(B):
@@ -148,8 +148,8 @@ def train_lattice(n, T=1000, Tr=100, mu0=0.01, nu=200):
 
 # Example usage
 if __name__ == "__main__":
-    n = 3  # Dimension of the lattice
-    T = 10000  # Number of iterations
+    n = 5  # Dimension of the lattice
+    T = 100000  # Number of iterations
     Tr = 100  # Reduction interval
     mu0 = 0.01  # Initial step size
     nu = 200  # Annealing ratio
