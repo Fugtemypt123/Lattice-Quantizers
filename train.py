@@ -1,7 +1,6 @@
 import numpy as np
-
-# fix random seed for reproducibility
-np.random.seed(0)
+import argparse
+import os
 
 # Function to generate a random n x m matrix with Gaussian entries
 def GRAN(n, m):
@@ -66,62 +65,98 @@ def CLP(r: np.ndarray, G: np.ndarray) -> np.ndarray:
                 break
     return None  # unreachable
 
-# Function to perform LLL reduction
-def gram_schmidt(B):
-    """Perform Gram-Schmidt orthogonalization."""
-    n = B.shape[0]
-    R = np.zeros((n, n))
-    Q = np.zeros_like(B)
-
-    for i in range(n):
-        Q[i] = B[i]
-        for j in range(i):
-            R[j, i] = np.dot(Q[j], B[i]) / np.dot(Q[j], Q[j])
-            Q[i] -= R[j, i] * Q[j]
-        R[i, i] = np.linalg.norm(Q[i])
-        Q[i] = Q[i] / R[i, i]
+def gram_schmidt(basis):
+    """
+    Perform Gram-Schmidt orthogonalization.
     
-    return Q, R
+    Parameters:
+        basis: An (n, m) basis matrix, where n is the dimension and m is the number of basis vectors.
+    
+    Returns:
+        B_star: A matrix of orthogonal basis vectors.
+        mu: The computed mu matrix.
+    """
+    n, m = basis.shape
+    B_star = np.zeros((n, m))
+    mu = np.zeros((m, m))
+    
+    for i in range(m):
+        B_star[:, i] = basis[:, i]
+        for j in range(i):
+            mu[i, j] = np.dot(basis[:, i], B_star[:, j]) / np.dot(B_star[:, j], B_star[:, j])
+            B_star[:, i] -= mu[i, j] * B_star[:, j]
+    
+    return B_star, mu
 
-def lll_reduction(B, delta=0.75):
-    """Perform LLL (Lenstra–Lenstra–Lovász) reduction."""
-    B = B.copy()
-    n = B.shape[0]
-    Q, R = gram_schmidt(B)  # Perform initial Gram-Schmidt orthogonalization
-
+def lll_reduction(basis, delta=0.75):
+    """
+    Perform the LLL reduction algorithm.
+    
+    Parameters:
+        basis: An (n, m) basis matrix, where n is the dimension and m is the number of basis vectors.
+        delta: The δ parameter in the Lovász condition, typically set to 0.75.
+    
+    Returns:
+        basis: The reduced basis matrix.
+    """
+    n, m = basis.shape
+    B_star, mu = gram_schmidt(basis)
     k = 1
-    while k < n:
-        # Size reduction step
+    
+    while k < m:
+        # Size reduction
         for j in range(k-1, -1, -1):
-            mu = np.dot(B[k], Q[j]) / np.dot(Q[j], Q[j])
-            B[k] -= np.round(mu) * B[j]
-
-        # Check Lovász condition
-        if np.dot(Q[k-1], Q[k-1]) * delta > (np.dot(Q[k], Q[k]) + (np.dot(Q[k-1], B[k]) ** 2) / np.dot(Q[k-1], Q[k-1])):
-            # Swap vectors
-            B[[k, k-1]] = B[[k-1, k]]
-            Q, R = gram_schmidt(B)  # Recompute after swapping
-            k = max(k-1, 1)
-        else:
+            if abs(mu[k, j]) > 0.5:
+                r = round(mu[k, j])
+                basis[:, k] -= r * basis[:, j]
+                # Update mu
+                B_star, mu = gram_schmidt(basis)
+        
+        # Check the Lovász condition
+        B_star_k = np.dot(basis[:, k], B_star[:, k])
+        B_star_k1 = np.dot(basis[:, k-1], B_star[:, k-1])
+        lhs = delta * (np.dot(basis[:, k-1], basis[:, k-1]))
+        rhs = np.dot(basis[:, k], basis[:, k]) + mu[k, k-1]**2 * np.dot(basis[:, k-1], basis[:, k-1])
+        
+        if lhs <= rhs:
             k += 1
-    return B
+        else:
+            # Exchange b_k and b_{k-1}
+            basis[:, [k, k-1]] = basis[:, [k-1, k]]
+            # Update Gram-Schmidt
+            B_star, mu = gram_schmidt(basis)
+            k = max(k-1, 1)
+    
+    return basis
 
 def RED(B):
-    """Wrapper for reduction, currently uses LLL reduction."""
     return lll_reduction(B)
 
 # Function to orthogonalize and ensure positive diagonals
 def ORTH(B):
-    """Ensure lower triangular matrix with positive diagonal elements."""
-    # try:
-    #     L = np.linalg.cholesky(B)
-    #     return L
-    # except np.linalg.LinAlgError:
-    B = np.tril(B)  # Enforce lower triangular form
-    diag_sign = np.sign(np.diag(B))
-    diag_sign[diag_sign == 0] = 1  # Replace zero diagonals with positive
-    B = B * diag_sign[:, np.newaxis]  # Adjust rows to ensure diagonals are positive
-    return B
+    """
+    Use Cholesky decomposition to rotate and reflect the generating matrix into a lower triangular matrix, ensuring positive diagonal elements.
+
+    Parameters:
+        B: A generating matrix of size (n, n).
+
+    Returns:
+        L: A lower triangular matrix satisfying A = B B^T = L L^T.
+    """
+    # Compute the Gram matrix A = B B^T
+    A = B @ B.T
+    
+    # Attempt Cholesky decomposition
+    try:
+        L = np.linalg.cholesky(A)
+    except np.linalg.LinAlgError:
+        # If A is not positive definite, force it to be lower triangular and adjust the diagonal to be positive
+        L = np.tril(A)
+        diag_sign = np.sign(np.diag(L))
+        diag_sign[diag_sign == 0] = 1  # Replace zero diagonal elements with positive ones
+        L = L * diag_sign[:, np.newaxis]  # Adjust rows to ensure the diagonal is positive
+    
+    return L
 
 # Function to compute the Normalized Second Moment (NSM)
 def compute_nsm(B):
@@ -140,7 +175,7 @@ def compute_nsm(B):
     return nsm
 
 # Iterative lattice construction (Algorithm 1)
-def iterative_lattice_construction(n, T, Tr, mu0, nu):
+def iterative_lattice_construction(n, T, Tr, mu0, nu, use_red):
     print(f"Initializing lattice construction for dimension {n}...")
     
     # Step 1: Initialize B
@@ -176,24 +211,28 @@ def iterative_lattice_construction(n, T, Tr, mu0, nu):
             B[i, i] -= mu * (y[i] * e[i] - np.linalg.norm(e) ** 2 / (n * B[i, i]))
 
         # Step 15-19: Periodic reduction and normalization
-        # if t % Tr == Tr - 1:
-        #     B = ORTH(RED(B))
-        #     V = np.prod(np.diag(B))
-        #     B = B / (V ** (1 / n))
+        if t % Tr == Tr - 1 and use_red == True:
+            B = ORTH(RED(B))
+            print(B)
+            V = np.prod(np.diag(B))
+            B = B / (V ** (1 / n))
         
-        # Log progress every 10% of iterations
+        # Log progress every 10 of iterations
         if t % 10 == 0 or t == T - 1:
             nsm = compute_nsm(B)
             print(f"Iteration {t + 1}/{T}, Current NSM: {nsm:.6f}")
         if t % 100 == 0 or t == T - 1:
-            print(f"Iteration {t + 1}/{T}, Current B: {B}")
+            # save B to file
+            if not os.path.exists(f"lattice_B_{n}"):
+                os.makedirs(f"lattice_B_{n}")
+            np.save(f"lattice_B_{n}/{t}_nsm={nsm:.6f}.npy", B)
 
     print("Optimization completed!")
     return B
 
 # Training and evaluation
-def train_lattice(n, T=1000, Tr=100, mu0=0.01, nu=200):
-    B = iterative_lattice_construction(n, T, Tr, mu0, nu)
+def train_lattice(n, T=1000, Tr=100, mu0=0.01, nu=200, use_red=False):
+    B = iterative_lattice_construction(n, T, Tr, mu0, nu, use_red)
     print("Final generator matrix B:")
     print(B)
 
@@ -204,13 +243,19 @@ def train_lattice(n, T=1000, Tr=100, mu0=0.01, nu=200):
 
 # Example usage
 if __name__ == "__main__":
-    n = 10  # Dimension of the lattice
-    T = 100000  # Number of iterations
-    Tr = 100  # Reduction interval
-    mu0 = 0.01  # Initial step size
-    nu = 200  # Annealing ratio
+    # add argument parser
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--n", type=int, default=10, help="Dimension of the lattice")
+    parser.add_argument("--T", type=int, default=100000, help="Number of iterations")
+    parser.add_argument("--Tr", type=int, default=100, help="Reduction interval")
+    parser.add_argument("--mu0", type=float, default=0.01, help="Initial step size")
+    parser.add_argument("--nu", type=int, default=200, help="Annealing ratio")
+    parser.add_argument("--seed", type=int, default=0, help="Random seed")
+    parser.add_argument("--use_red", action="store_true", help="Use LLL reduction or not")
+    args = parser.parse_args()
 
     print("Training lattice generator...")
-    B, final_nsm = train_lattice(n, T, Tr, mu0, nu)
+    np.random.seed(args.seed)
+    B, final_nsm = train_lattice(args.n, args.T, args.Tr, args.mu0, args.nu, args.use_red)
     print(f"Generated generator matrix B:\n{B}")
     print(f"Achieved Normalized Second Moment (NSM): {final_nsm:.6f}")
