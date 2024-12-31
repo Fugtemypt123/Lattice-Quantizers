@@ -113,6 +113,10 @@ def RED(B):
 # Function to orthogonalize and ensure positive diagonals
 def ORTH(B):
     """Ensure lower triangular matrix with positive diagonal elements."""
+    # try:
+    #     L = np.linalg.cholesky(B)
+    #     return L
+    # except np.linalg.LinAlgError:
     B = np.tril(B)  # Enforce lower triangular form
     diag_sign = np.sign(np.diag(B))
     diag_sign[diag_sign == 0] = 1  # Replace zero diagonals with positive
@@ -172,15 +176,17 @@ def iterative_lattice_construction(n, T, Tr, mu0, nu):
             B[i, i] -= mu * (y[i] * e[i] - np.linalg.norm(e) ** 2 / (n * B[i, i]))
 
         # Step 15-19: Periodic reduction and normalization
-        if t % Tr == Tr - 1:
-            B = ORTH(RED(B))
-            V = np.prod(np.diag(B))
-            B = B / (V ** (1 / n))
+        # if t % Tr == Tr - 1:
+        #     B = ORTH(RED(B))
+        #     V = np.prod(np.diag(B))
+        #     B = B / (V ** (1 / n))
         
         # Log progress every 10% of iterations
-        if t % 100 == 0 or t == T - 1:
+        if t % 10 == 0 or t == T - 1:
             nsm = compute_nsm(B)
             print(f"Iteration {t + 1}/{T}, Current NSM: {nsm:.6f}")
+        if t % 100 == 0 or t == T - 1:
+            print(f"Iteration {t + 1}/{T}, Current B: {B}")
 
     print("Optimization completed!")
     return B
@@ -198,7 +204,7 @@ def train_lattice(n, T=1000, Tr=100, mu0=0.01, nu=200):
 
 # Example usage
 if __name__ == "__main__":
-    n = 5  # Dimension of the lattice
+    n = 10  # Dimension of the lattice
     T = 100000  # Number of iterations
     Tr = 100  # Reduction interval
     mu0 = 0.01  # Initial step size
