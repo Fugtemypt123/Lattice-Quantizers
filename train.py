@@ -12,9 +12,59 @@ def URAN(n):
     return np.random.uniform(0, 1, n)
 
 # Function to find the closest lattice point
-def CLP(B, zB):
-    # Approximation of the closest point in the lattice (solving lattice problem is hard)
-    return np.round(np.linalg.solve(B, zB))
+# Algorithm 5 in https://ieeexplore.ieee.org/document/5773010
+def CLP(r: np.ndarray, G: np.ndarray) -> np.ndarray:
+    """
+    Args:
+        r (ndarray): The received vector.
+        G (ndarray): The generator matrix of the lattice.
+    """
+    def sign(double):
+        return 1 if double > 0 else -1
+    n = G.shape[0]
+    C = np.inf  # the radius of the sphere
+    i = n
+    d = [n - 1 for _ in range(n)]  # d[i] means F[d[i]:n, i] are computed.
+    F = np.zeros((n, n), dtype=np.float64); F[n - 1] = r  # F[j, i] = r[i] - u[j+1]G[j+1,i] - ... - u[n-1]G[n-1,i]
+    lam = [0 for _ in range(n + 1)]  # lambda[i] = y[i] ** 2 + ... + y[n-1] ** 2
+    u = np.zeros(n, dtype=np.int32)
+    p = np.zeros(n, dtype=np.float64)  # p[i] = F[i, i] / G[i, i]
+    delta = np.zeros(n, dtype=np.float64)
+    hat_u = None
+    while True:
+        while True:  # greedily take the nearest integer
+            if i > 0:
+                i -= 1
+                for j in range(d[i], i, -1):
+                    F[j - 1, i] = F[j, i] - u[j] * G[j, i]
+                p[i] = F[i, i] / G[i, i]
+                u[i] = int(p[i] + 0.5)  # search from the nearest integer
+                y = (p[i] - u[i]) * G[i, i]
+                delta[i] = sign(y)  # delta[i] determines the direction of the search
+                lam[i] = lam[i + 1] + y * y
+            else:
+                hat_u = u.copy()
+                C = lam[0]
+            if lam[i] >= C:  # search constraint
+                break
+        m = i
+        while True:  # backtracking until the search constraint is satisfied
+            if i < n - 1:
+                i += 1
+                u[i] += delta[i]
+                delta[i] = -delta[i] - sign(delta[i])  # it can be +1, -2, +3, ..., searching from the nearest to the farthest
+                y = (p[i] - u[i]) * G[i, i]
+                lam[i] = lam[i + 1] + y * y
+            else:
+                return hat_u
+            if lam[i] < C:
+                break
+        for j in range(m, i):
+            if d[j] < i:
+                d[j] = i
+            else:
+                break
+    return None  # unreachable
 
 # Function to perform LLL reduction
 def gram_schmidt(B):
@@ -78,7 +128,7 @@ def compute_nsm(B):
     norms = []
     for _ in range(10000):  # Sample a large number of random points
         z = URAN(n)
-        y = z - CLP(B, z @ B)
+        y = z - CLP(z @ B, B)
         e = y @ B
         norms.append(np.linalg.norm(e) ** 2)
     norms = np.array(norms)
@@ -110,7 +160,7 @@ def iterative_lattice_construction(n, T, Tr, mu0, nu):
         z = URAN(n)
 
         # Step 7: Compute y
-        y = z - CLP(B, z @ B)
+        y = z - CLP(z @ B, B)
 
         # Step 8: Compute e
         e = y @ B
