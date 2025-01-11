@@ -2,6 +2,9 @@ import numpy as np
 from numpy.linalg import det
 from scipy.linalg import block_diag
 
+import os
+from tqdm import tqdm
+
 from train import *
 
 # fix random seed for reproducibility
@@ -100,57 +103,151 @@ def construct_product_lattice(B_list, a_list):
 # ======================== 示例演示 =================================
 
 if __name__ == "__main__":
+    # for i in range(2, 13):
+    #     B = np.load(f'./lattice_B_{i}/final.npy')
+    #     np.save(f'./lattice_B_{i}/best.npy', B)
+    # raise ValueError('with great power comes great responsibility')
     # 假设我们有k=2个低维晶格:
     #   Λ1: 2维, 生成矩阵 B1, 体积V1, NSM=G1
     #   Λ2: 1维, 生成矩阵 B2, 体积V2, NSM=G2
     # 这里只是示例，参数可能是随意的。
 
-    B1 = np.array([[1.0, 0.0],
-                   [0.0, 1.0]])  # 2D
-    B2 = np.array([[1.0]])       # 1D
+    # B1 = np.array([[1.0, 0.0],
+    #                [0.0, 1.0]])  # 2D
+    # B2 = np.array([[1.0]])       # 1D
 
-    V1 = volume_of_lattice(B1)  # 2D体积
-    V2 = volume_of_lattice(B2)  # 1D'体积'即|1.0|=1
+    for jj in tqdm(range(64, 65)):  # 只使用两个32合成64
 
-    # 这里假设我们已知 (或通过其它手段计算得到) Λ1与Λ2的NSM:
-    # G1 = 0.080187537       # 示例
-    # G2 = 0.083333333       # 示例
-    G1 = compute_nsm(B1)
-    G2 = compute_nsm(B2)
-    n1, n2 = 2, 1
+        n = jj
+        best_G = 10000
+        best_n1 = 0
+        best_n2 = 0
 
-    print("=== 子晶格信息 ===")
-    print(f"  B1=\n{B1},  V1={V1:.4f},  G1={G1}")
-    print(f"  B2=\n{B2},  V2={V2:.4f},  G2={G2}")
+        for i in range(32, 33):  # 只使用两个32合成64
+            n1 = i
+            n2 = n - i
+            B1 = np.load(f'./lattice_B_{n1}/best.npy')
+            B2 = np.load(f'./lattice_B_{n2}/best.npy')
 
-    # ========== 1) 合成高维晶格的NSM ==========
+            V1 = volume_of_lattice(B1)  # 2D体积
+            V2 = volume_of_lattice(B2)  # 1D'体积'即|1.0|=1
 
-    # a) 先算各子晶格的 E_i
-    E1 = compute_Ei_from_Gi(V1, G1, n1)
-    E2 = compute_Ei_from_Gi(V2, G2, n2)
+            # 这里假设我们已知 (或通过其它手段计算得到) Λ1与Λ2的NSM:
+            # G1 = 0.080187537       # 示例
+            # G2 = 0.083333333       # 示例
+            if os.path.exists(f"./lattice_B_{n1}/best_G.txt"):
+                with open(f"./lattice_B_{n1}/best_G.txt", 'r') as f:
+                    G1 = float(f.read())
+            else:
+                G1 = compute_nsm(B1, iters=20000)
+                with open(f"./lattice_B_{n1}/best_G.txt", 'w') as f:
+                    f.write(str(G1))
+            if os.path.exists(f"./lattice_B_{n2}/best_G.txt"):
+                with open(f"./lattice_B_{n2}/best_G.txt", 'r') as f:
+                    G2 = float(f.read())
+            else:
+                G2 = compute_nsm(B2, iters=20000)
+                with open(f"./lattice_B_{n2}/best_G.txt", 'w') as f:
+                    f.write(str(G2))
 
-    # b) 找到最优缩放因子 a_opt
-    #    (令 乘积晶格 G 最小)
-    dim_list = [n1, n2]
-    V_list   = [V1, V2]
-    G_list   = [G1, G2]
-    a_opt = find_optimal_scales(V_list, G_list, dim_list)
+            # print("=== 子晶格信息 ===")
+            # print(f"  B1=\n{B1},  V1={V1:.4f},  G1={G1}")
+            # print(f"  B2=\n{B2},  V2={V2:.4f},  G2={G2}")
 
-    print("\n---> 最优缩放因子 a_opt =", a_opt)
+            # ========== 1) 合成高维晶格的NSM ==========
 
-    # c) 拼成高维生成矩阵
-    B_prod = construct_product_lattice([B1,B2], a_opt)
-    print("合成后高维 生成矩阵 B_prod =\n", B_prod)
+            # a) 先算各子晶格的 E_i
+            E1 = compute_Ei_from_Gi(V1, G1, n1)
+            E2 = compute_Ei_from_Gi(V2, G2, n2)
 
-    # d) 用公式法(低维合成)得到 高维NSM
-    E_list = [E1, E2]
-    G_val_formula = compute_nsm_product_lattice(E_list, V_list, dim_list, a_opt)
-    print(f"高维乘积晶格(公式法) 的 NSM = {G_val_formula:.6f}")
+            # b) 找到最优缩放因子 a_opt
+            #    (令 乘积晶格 G 最小)
+            dim_list = [n1, n2]
+            V_list   = [V1, V2]
+            G_list   = [G1, G2]
+            a_opt = find_optimal_scales(V_list, G_list, dim_list)
 
-    # ========== 2) 直接采样的方式估计 高维NSM ==========
+            # print("\n---> 最优缩放因子 a_opt =", a_opt)
 
-    G_val_sampling = compute_nsm(B_prod)
-    print(f"高维乘积晶格(采样法) 的 NSM ~= {G_val_sampling:.6f}")
+            # c) 拼成高维生成矩阵
+            B_prod = construct_product_lattice([B1,B2], a_opt)
+            # print("合成后高维 生成矩阵 B_prod =\n", B_prod)
 
-    print("\n对比：\n  公式法(基于低维合成) = {:.6f}\n  采样法(近似)       = {:.6f}"
-          .format(G_val_formula, G_val_sampling))
+            # d) 用公式法(低维合成)得到 高维NSM
+            # E_list = [E1, E2]
+            # G_val_formula = compute_nsm_product_lattice(E_list, V_list, dim_list, a_opt)
+            # print(f"高维乘积晶格(公式法) 的 NSM = {G_val_formula:.6f}")
+
+            # ========== 2) 直接采样的方式估计 高维NSM ==========
+
+            G_val_sampling = compute_nsm(B_prod, iters=500)
+            # print(f"高维乘积晶格(采样法) 的 NSM ~= {G_val_sampling:.6f}")
+
+            # print("\n对比：\n  公式法(基于低维合成) = {:.6f}\n  采样法(近似)       = {:.6f}"
+            #     .format(G_val_formula, G_val_sampling))
+            
+            if G_val_sampling < best_G:
+                best_G = G_val_sampling
+                best_B = B_prod
+                best_n1 = n1
+                best_n2 = n2
+
+        # print(f"=================== optimized lattice ====================")
+        # print(f"best_B = {best_B}")
+        print(f'n = {n}')
+        print(f"best_G = {best_G}")
+        print(f"best_n1 = {best_n1}")
+        print(f"best_n2 = {best_n2}")
+
+        os.makedirs(f"./lattice_B_{n}", exist_ok=True)
+
+        if os.path.exists(f"./lattice_B_{n}/final.npy"):
+            B_final = np.load(f"./lattice_B_{n}/final.npy")
+            if os.path.exists(f"./lattice_B_{n}/best_G.txt"):
+                with open(f"./lattice_B_{n}/best_G.txt", 'r') as f:
+                    G_final = float(f.read())
+            else:
+                G_final = compute_nsm(B_final, iters=500)
+                with open(f"./lattice_B_{n}/best_G.txt", 'w') as f:
+                    f.write(str(G_final))
+            if best_G < G_final:
+                print(f"best_G = {best_G} < G_final = {G_final}")
+                np.save(f"./lattice_B_{n}/best.npy", best_B)
+                # 保存best_G这个浮点数
+                with open(f"./lattice_B_{n}/best_G.txt", 'w') as f:
+                    f.write(str(best_G))
+        else:
+            np.save(f"./lattice_B_{n}/best.npy", best_B)
+            # 保存best_G这个浮点数
+            with open(f"./lattice_B_{n}/best_G.txt", 'w') as f:
+                f.write(str(best_G))
+    
+
+
+
+
+
+
+
+# ==================== optimized lattice ====================
+
+# B_10 = [[ 1.33267874  0.          0.          0.          0.          0.
+#    0.          0.          0.          0.        ]
+#  [-0.51677576  1.29032294  0.          0.          0.          0.
+#    0.          0.          0.          0.        ]
+#  [ 0.24860906  0.71746374  1.25587127  0.          0.          0.
+#    0.          0.          0.          0.        ]
+#  [-0.14623105  0.25527198  0.20810982  1.19217875  0.          0.
+#    0.          0.          0.          0.        ]
+#  [-0.2676491  -0.66321142  0.4538925   0.25283892  0.95563584  0.
+#    0.          0.          0.          0.        ]
+#  [ 0.16786354 -0.01054421 -0.09594673  1.02195047  0.03638536  1.09497572
+#    0.          0.          0.          0.        ]
+#  [-0.50673155 -0.05396517  0.4477078   0.42368687  0.18029331  0.57344126
+#    0.63004389  0.          0.          0.        ]
+#  [ 0.42773975  0.06079724  0.36930222 -0.05250003 -0.23824401  0.09555951
+#   -0.2187094   0.86852056  0.          0.        ]
+#  [ 0.05689535  0.0987014   0.6033408   0.31390286 -0.52303104  0.26431479
+#    0.45198169 -0.10037699  0.90282694  0.        ]
+#  [ 0.10217592 -0.51938943  0.26854412  0.5117036  -0.43231376  0.09275387
+#   -0.08184687  0.22888571  0.44744628  0.71316176]]

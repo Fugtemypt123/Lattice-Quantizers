@@ -159,13 +159,13 @@ def ORTH(B):
     return L
 
 # Function to compute the Normalized Second Moment (NSM)
-def compute_nsm(B):
+def compute_nsm(B, iters=1000):
     # Volume of the Voronoi region
     V = np.prod(np.diag(B))
     # Compute the NSM using the definition
     n = B.shape[0]
     norms = []
-    for _ in range(10000):  # Sample a large number of random points
+    for _ in range(iters):  # Sample a large number of random points
         z = URAN(n)
         y = z - CLP(z @ B, B)
         e = y @ B
@@ -189,6 +189,8 @@ def iterative_lattice_construction(n, T, Tr, mu0, nu, use_red):
     # Step 3: Normalize B
     B = B / (V ** (1 / n))
 
+    print('step1')
+
     print("Starting optimization process...")
     # Main loop
     for t in range(T):
@@ -198,8 +200,12 @@ def iterative_lattice_construction(n, T, Tr, mu0, nu, use_red):
         # Step 6: Generate random vector
         z = URAN(n)
 
+        print('step2')
+
         # Step 7: Compute y
         y = z - CLP(z @ B, B)
+
+        print('step3')
 
         # Step 8: Compute e
         e = y @ B
@@ -218,14 +224,15 @@ def iterative_lattice_construction(n, T, Tr, mu0, nu, use_red):
             B = B / (V ** (1 / n))
         
         # Log progress every 10 of iterations
-        if t % 10 == 0 or t == T - 1:
+        if t % 100 == 0 or t == T - 1:
             nsm = compute_nsm(B)
             print(f"Iteration {t + 1}/{T}, Current NSM: {nsm:.6f}")
-        if t % 100 == 0 or t == T - 1:
+        if t % 1000 == 0 or t == T - 1:
             # save B to file
             if not os.path.exists(f"lattice_B_{n}"):
                 os.makedirs(f"lattice_B_{n}")
             np.save(f"lattice_B_{n}/{t}_nsm={nsm:.6f}.npy", B)
+    np.save(f"lattice_B_{n}/final.npy", B)
 
     print("Optimization completed!")
     return B
@@ -237,7 +244,7 @@ def train_lattice(n, T=1000, Tr=100, mu0=0.01, nu=200, use_red=False):
     print(B)
 
     # Compute the final NSM
-    final_nsm = compute_nsm(B)
+    final_nsm = compute_nsm(B, iters=20000)
     print(f"Final NSM for the constructed lattice: {final_nsm:.6f}")
     return B, final_nsm
 
@@ -245,8 +252,8 @@ def train_lattice(n, T=1000, Tr=100, mu0=0.01, nu=200, use_red=False):
 if __name__ == "__main__":
     # add argument parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--n", type=int, default=10, help="Dimension of the lattice")
-    parser.add_argument("--T", type=int, default=100000, help="Number of iterations")
+    parser.add_argument("--n", type=int, default=12, help="Dimension of the lattice")
+    parser.add_argument("--T", type=int, default=20000, help="Number of iterations")
     parser.add_argument("--Tr", type=int, default=100, help="Reduction interval")
     parser.add_argument("--mu0", type=float, default=0.01, help="Initial step size")
     parser.add_argument("--nu", type=int, default=200, help="Annealing ratio")
